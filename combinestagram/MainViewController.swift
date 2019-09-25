@@ -37,6 +37,11 @@ class MainViewController: UIViewController {
   @IBOutlet weak var buttonSave: UIButton!
   @IBOutlet weak var itemAdd: UIBarButtonItem!
   
+  override func viewWillAppear(_ animated: Bool) {
+    super.viewWillAppear(animated)
+    print("resources: \(RxSwift.Resources.total)")
+  }
+  
   private let disposeBag = DisposeBag()
   
   private let images = BehaviorRelay<[UIImage]>(value: [])//Variable<[UIImage]>([])
@@ -45,6 +50,7 @@ class MainViewController: UIViewController {
     super.viewDidLoad()
     images.asObservable().subscribe(onNext: { [weak self](selectedPhotos) in
       self?.imagePreview.image = selectedPhotos.collage(size: self?.imagePreview.bounds.size ?? CGSize.zero)//UIImage.collage(images: selectedPhotos, size: self?.imagePreview.bounds.size ?? CGSize.zero)
+      self?.updateUI(selectedPhotos: selectedPhotos)
       }).disposed(by: disposeBag)
   }
   
@@ -53,16 +59,41 @@ class MainViewController: UIViewController {
   }
 
   @IBAction func actionSave() {
-
+    guard let image = imagePreview.image else { return }
+    PhotoWriter.save(image)
+      .subscribe(onError: { [weak self] error in
+        self?.showMessage("Error", description: error.localizedDescription)
+      }, onCompleted: { [weak self] in
+        self?.showMessage("Saved")
+        self?.actionClear()
+      })
+      .disposed(by: disposeBag)
   }
 
   @IBAction func actionAdd() {
-    images.accept(images.value + [UIImage(named: "IMG_1907")!])
+    guard let vc = storyboard?.instantiateViewController(withIdentifier: "PhotosViewController") as? PhotosViewController else{
+      return 
+    }
+    vc.selectedPhotos.subscribe(onNext: { [weak self] (selectedPhoto) in
+    self?.images.accept((self?.images.value ?? []) + [selectedPhoto])
+      }, onDisposed: {
+        print("completed photo selection")
+    }).disposed(by: vc.bag)
+    
+    navigationController?.pushViewController(vc, animated: true)
   }
 
   func showMessage(_ title: String, description: String? = nil) {
     let alert = UIAlertController(title: title, message: description, preferredStyle: .alert)
     alert.addAction(UIAlertAction(title: "Close", style: .default, handler: { [weak self] _ in self?.dismiss(animated: true, completion: nil)}))
     present(alert, animated: true, completion: nil)
+  }
+}
+private extension MainViewController{
+  func updateUI(selectedPhotos: [UIImage]){
+    buttonSave.isEnabled = selectedPhotos.count > 0 && selectedPhotos.count % 2 == 0
+    buttonClear.isEnabled = selectedPhotos.count > 0
+    itemAdd.isEnabled = selectedPhotos.count < 6
+    title = selectedPhotos.count > 0 ? "\(selectedPhotos.count) photos" : "Collage"
   }
 }
