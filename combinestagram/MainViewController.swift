@@ -84,9 +84,10 @@ class MainViewController: UIViewController {
   }
 
   func showMessage(_ title: String, description: String? = nil) {
-    let alert = UIAlertController(title: title, message: description, preferredStyle: .alert)
-    alert.addAction(UIAlertAction(title: "Close", style: .default, handler: { [weak self] _ in self?.dismiss(animated: true, completion: nil)}))
-    present(alert, animated: true, completion: nil)
+//    let alert = UIAlertController(title: title, message: description, preferredStyle: .alert)
+//    alert.addAction(UIAlertAction(title: "Close", style: .default, handler: { [weak self] _ in self?.dismiss(animated: true, completion: nil)}))
+//    present(alert, animated: true, completion: nil)
+    showAlertWith(title: title, message: description).subscribe().disposed(by: disposeBag)
   }
 }
 private extension MainViewController{
@@ -95,5 +96,19 @@ private extension MainViewController{
     buttonClear.isEnabled = selectedPhotos.count > 0
     itemAdd.isEnabled = selectedPhotos.count < 6
     title = selectedPhotos.count > 0 ? "\(selectedPhotos.count) photos" : "Collage"
+  }
+}
+extension UIViewController{
+  func showAlertWith(title: String, message: String?)->Completable{
+    return Completable.create { [weak self](completable) -> Disposable in
+      let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+      alert.addAction(UIAlertAction(title: "Close", style: .default, handler: {(_) in
+        completable(.completed)
+      }))
+      self?.present(alert, animated: true, completion: nil)
+      return Disposables.create {
+        self?.dismiss(animated: true, completion: nil)
+      }
+    }
   }
 }
