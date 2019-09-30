@@ -37,6 +37,7 @@ class MainViewController: UIViewController {
   @IBOutlet weak var buttonSave: UIButton!
   @IBOutlet weak var itemAdd: UIBarButtonItem!
   
+  private var imageCache = [Int]()
   override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
     print("resources: \(RxSwift.Resources.total)")
@@ -45,17 +46,29 @@ class MainViewController: UIViewController {
   private let disposeBag = DisposeBag()
   
   private let images = BehaviorRelay<[UIImage]>(value: [])//Variable<[UIImage]>([])
+  
+  private var imagesObservable: Observable<[UIImage]>{
+    return images.asObservable().share()
+  }
 
   override func viewDidLoad() {
     super.viewDidLoad()
-    images.asObservable().subscribe(onNext: { [weak self](selectedPhotos) in
+    imagesObservable
+      .throttle(DispatchTimeInterval.milliseconds(500), scheduler: MainScheduler.instance)
+      .subscribe(onNext: { [weak self](selectedPhotos) in
       self?.imagePreview.image = selectedPhotos.collage(size: self?.imagePreview.bounds.size ?? CGSize.zero)//UIImage.collage(images: selectedPhotos, size: self?.imagePreview.bounds.size ?? CGSize.zero)
-      self?.updateUI(selectedPhotos: selectedPhotos)
+      
+      }).disposed(by: disposeBag)
+    
+    imagesObservable
+      .subscribe(onNext: {  [weak self](selectedPhotos) in
+        self?.updateUI(selectedPhotos: selectedPhotos)
       }).disposed(by: disposeBag)
   }
   
   @IBAction func actionClear() {
     images.accept([])
+    imageCache = []
   }
 
   @IBAction func actionSave() {
@@ -74,11 +87,32 @@ class MainViewController: UIViewController {
     guard let vc = storyboard?.instantiateViewController(withIdentifier: "PhotosViewController") as? PhotosViewController else{
       return 
     }
-    vc.selectedPhotos.subscribe(onNext: { [weak self] (selectedPhoto) in
+    let newPhotos = vc.selectedPhotos.share()
+    
+    newPhotos
+      .takeWhile({ [weak self](_) -> Bool in
+        (self?.images.value.count ?? 0) < 6
+      })
+      .filter({ $0.size.width > $0.size.height })
+      .filter({ [weak self](newImage) -> Bool in
+        let len = newImage.pngData()?.count ?? 0
+        if self?.imageCache.contains(len) == false{
+          self?.imageCache.append(len)
+          return true
+        }
+        return false
+      })
+      .subscribe(onNext: { [weak self] (selectedPhoto) in
     self?.images.accept((self?.images.value ?? []) + [selectedPhoto])
       }, onDisposed: {
         print("completed photo selection")
     }).disposed(by: vc.bag)
+    
+    newPhotos
+      .ignoreElements()
+      .subscribe(onCompleted: { [weak self] in
+        self?.updateNavigationIcon()
+      }).disposed(by: disposeBag)
     
     navigationController?.pushViewController(vc, animated: true)
   }
@@ -91,6 +125,14 @@ class MainViewController: UIViewController {
   }
 }
 private extension MainViewController{
+  func updateNavigationIcon() {
+    let icon = imagePreview.image?
+      .scaled(CGSize(width: 22, height: 22))
+      .withRenderingMode(.alwaysOriginal)
+    navigationItem.leftBarButtonItem = UIBarButtonItem(image: icon,
+      style: .done, target: nil, action: nil)
+  }
+  
   func updateUI(selectedPhotos: [UIImage]){
     buttonSave.isEnabled = selectedPhotos.count > 0 && selectedPhotos.count % 2 == 0
     buttonClear.isEnabled = selectedPhotos.count > 0
